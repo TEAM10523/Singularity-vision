@@ -4,6 +4,7 @@ import os
 import numpy as np
 from pupil_apriltags import Detector
 from concurrent.futures import ProcessPoolExecutor
+from ultralytics import YOLO
 
 app = Flask(__name__)
 
@@ -24,35 +25,62 @@ def detect_apriltags_in_frame(frame, families='tag36h11'):
         })
     return tags
 
+def detect_objects_in_frame(frame):
+    model = YOLO('yolov8n.pt')
+    results = model(frame)[0]
+    detections = []
+    for box, conf, cls in zip(results.boxes.xyxy.cpu().numpy(), results.boxes.conf.cpu().numpy(), results.boxes.cls.cpu().numpy()):
+        detections.append({
+            'bbox': [float(x) for x in box],
+            'confidence': float(conf),
+            'class_id': int(cls),
+            'class_name': model.model.names[int(cls)]
+        })
+    return detections
+
 @app.route('/')
 def index():
     return send_file(os.path.join(os.path.dirname(__file__), 'webui.html'))
 
 @app.route('/video_feed')
 def video_feed():
+    model = YOLO('yolov8n.pt')
     def gen_frames():
         while True:
             success, frame = camera.read()
             if not success:
                 break
-            else:
-                ret, buffer = cv2.imencode('.jpg', frame)
-                frame = buffer.tobytes()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            # YOLOv8 draw detection boxes directly on frame
+            results = model(frame)[0]
+            frame_with_boxes = results.plot()
+            ret, buffer = cv2.imencode('.jpg', frame_with_boxes)
+            frame_bytes = buffer.tobytes()
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
     return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/api/apriltags')
 def apriltags_api():
-    # Read one frame for detection
     success, frame = camera.read()
     if not success:
         return jsonify({'error': 'Camera read failed'}), 500
-    # Use multi-core processing for detection
     with ProcessPoolExecutor() as executor:
         future = executor.submit(detect_apriltags_in_frame, frame)
         tags = future.result()
     return jsonify({'tags': tags})
+
+@app.route('/api/detections')
+def detections_api():
+    success, frame = camera.read()
+    if not success:
+        return jsonify({'error': 'Camera read failed'}), 500
+    height, width = frame.shape[:2]
+    with ProcessPoolExecutor() as executor:
+        f1 = executor.submit(detect_apriltags_in_frame, frame)
+        f2 = executor.submit(detect_objects_in_frame, frame)
+        tags = f1.result()
+        objects = f2.result()
+    return jsonify({'tags': tags, 'objects': objects, 'frame_width': width, 'frame_height': height})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True) 

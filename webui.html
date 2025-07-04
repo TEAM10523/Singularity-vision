@@ -9,7 +9,8 @@
         h1 { text-align: center; margin-bottom: 32px; }
         .flex-row { display: flex; flex-wrap: wrap; gap: 32px; justify-content: center; }
         .video-section, .info-section { flex: 1 1 350px; min-width: 320px; }
-        .video-section img { width: 100%; max-width: 480px; border: 2px solid #333; border-radius: 8px; }
+        .video-section { position: relative; }
+        .video-section img { max-width: 480px; width: 100%; height: auto; border: 2px solid #333; border-radius: 8px; display: block; }
         .info-section { display: flex; flex-direction: column; justify-content: flex-start; }
         .placeholder { background: #e9ecef; border: 1px dashed #aaa; border-radius: 6px; padding: 24px; min-height: 120px; margin-bottom: 16px; color: #888; font-size: 1.1em; }
     </style>
@@ -25,20 +26,22 @@
                 <div class="placeholder" id="apriltag-coords">
                     AprilTag coordinates will be displayed here.
                 </div>
-                <div class="placeholder" id="other-info">
-                    Additional information or controls can be added here.
+                <div class="placeholder" id="object-info">
+                    Object detection results will be displayed here.
                 </div>
             </div>
         </div>
     </div>
     <script>
-    async function fetchAprilTags() {
+    // 右侧信息区仍可通过/api/detections获取并渲染参数
+    async function fetchDetections() {
         try {
-            const resp = await fetch('/api/apriltags');
+            const resp = await fetch('/api/detections');
             const data = await resp.json();
-            const container = document.getElementById('apriltag-coords');
+            // AprilTag info
+            const tagContainer = document.getElementById('apriltag-coords');
             if (data.tags && data.tags.length > 0) {
-                container.innerHTML = data.tags.map(tag => `
+                tagContainer.innerHTML = data.tags.map(tag => `
                     <div>
                         <strong>ID:</strong> ${tag.id} <br>
                         <strong>Family:</strong> ${tag.family} <br>
@@ -48,14 +51,29 @@
                     <hr>
                 `).join('');
             } else {
-                container.innerHTML = 'No AprilTags detected.';
+                tagContainer.innerHTML = 'No AprilTags detected.';
+            }
+            // Object detection info
+            const objContainer = document.getElementById('object-info');
+            if (data.objects && data.objects.length > 0) {
+                objContainer.innerHTML = data.objects.map(obj => `
+                    <div>
+                        <strong>Class:</strong> ${obj.class_name} <br>
+                        <strong>Confidence:</strong> ${(obj.confidence*100).toFixed(1)}% <br>
+                        <strong>BBox:</strong> [${obj.bbox.map(x => x.toFixed(1)).join(', ')}]
+                    </div>
+                    <hr>
+                `).join('');
+            } else {
+                objContainer.innerHTML = 'No objects detected.';
             }
         } catch (e) {
-            document.getElementById('apriltag-coords').innerHTML = 'Error fetching AprilTag data.';
+            document.getElementById('apriltag-coords').innerHTML = 'Error fetching detection data.';
+            document.getElementById('object-info').innerHTML = '';
         }
     }
-    setInterval(fetchAprilTags, 1000);
-    fetchAprilTags();
+    setInterval(fetchDetections, 1000);
+    fetchDetections();
     </script>
 </body>
 </html> 

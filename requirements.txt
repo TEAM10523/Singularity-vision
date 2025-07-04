@@ -1,3 +1,4 @@
 flask
 opencv-python
-pupil-apriltags 
+pupil-apriltags
+ultralytics 
