@@ -1,0 +1,45 @@
+{
+  "inference": {
+    "backend": "coreml",
+    "fps": 60,
+    "confidence_threshold": 0.5,
+    "nms_threshold": 0.5
+  },
+  "models": {
+    "torch": {
+      "default": "yolov8n.pt",
+      "available": [
+        {
+          "name": "YOLOv8 Nano",
+          "file": "yolov8n.pt",
+          "description": "Fast and lightweight model"
+        },
+        {
+          "name": "Reefscape FRC",
+          "file": "Reefscape_FRC_2-640-640-yolo11n.pt",
+          "description": "Specialized for reef detection"
+        }
+      ]
+    },
+    "coreml": {
+      "default": "yolov8n.mlpackage",
+      "available": [
+        {
+          "name": "YOLOv8 Nano CoreML",
+          "file": "yolov8n.mlpackage",
+          "description": "Optimized for Apple Silicon"
+        }
+      ]
+    }
+  },
+  "camera": {
+    "device_id": 0,
+    "width": 640,
+    "height": 480
+  },
+  "display": {
+    "box_thickness": 2,
+    "font_scale": 0.5,
+    "text_thickness": 2
+  }
+}

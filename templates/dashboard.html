@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>VISION CONTROL PANEL</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://fonts.googleapis.com/css?family=Inter:400,500,700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #181c20;
+            --card-bg: #23272b;
+            --accent: #4f8cff;
+            --accent-hover: #3570d4;
+            --border: #2c3136;
+            --text: #e6eaf0;
+            --text-secondary: #a0a4ab;
+            --success: #2ecc71;
+            --danger: #e74c3c;
+            --shadow: 0 4px 24px rgba(0,0,0,0.25);
+        }
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 32px auto;
+            padding: 32px;
+            background: var(--card-bg);
+            border-radius: 18px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: flex-start;
+            margin-bottom: 8px;
+        }
+        .header-title {
+            font-size: 2.1em;
+            font-weight: 800;
+            letter-spacing: 2px;
+            color: var(--text);
+            text-transform: uppercase;
+        }
+        .flex-row {
+            display: flex;
+            gap: 32px;
+            flex-wrap: wrap;
+        }
+        .video-section {
+            flex: 1 1 520px;
+            min-width: 400px;
+            background: var(--bg);
+            border-radius: 14px;
+            box-shadow: var(--shadow);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 24px 0;
+        }
+        .video-section img {
+            width: 100%;
+            max-width: 600px;
+            border-radius: 10px;
+            border: 2px solid var(--border);
+            box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+            background: #111;
+        }
+        .info-section {
+            flex: 1 1 350px;
+            min-width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.10);
+            padding: 24px 20px 18px 20px;
+            border: 1.5px solid var(--border);
+        }
+        .card h3 {
+            margin: 0 0 12px 0;
+            font-size: 1.15em;
+            font-weight: 600;
+            color: var(--text-secondary);
+            letter-spacing: 0.5px;
+        }
+        .detection-item {
+            background: #23272b;
+            border-radius: 7px;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+            border-left: 4px solid var(--accent);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+        }
+        .detection-item strong {
+            color: var(--accent);
+        }
+        .no-data {
+            color: var(--text-secondary);
+            font-style: italic;
+            text-align: center;
+            padding: 18px 0;
+        }
+        .controls-section {
+            display: flex;
+            gap: 32px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+            min-width: 180px;
+        }
+        .control-group label {
+            font-size: 1em;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 2px;
+        }
+        select, button {
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1.5px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 1em;
+            font-family: inherit;
+            transition: border 0.2s, background 0.2s, color 0.2s;
+        }
+        select:focus, button:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        select {
+            cursor: pointer;
+        }
+        button {
+            background: var(--accent);
+            color: #fff;
+            font-weight: 600;
+            border: none;
+            margin-top: 2px;
+            box-shadow: 0 2px 8px rgba(79,140,255,0.10);
+            cursor: pointer;
+            transition: background 0.2s, box-shadow 0.2s;
+        }
+        button:disabled {
+            background: #444b55;
+            color: #aaa;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        button:hover:not(:disabled) {
+            background: var(--accent-hover);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 16px;
+            margin-top: 18px;
+        }
+        .stat-card {
+            background: #23272b;
+            border-radius: 8px;
+            padding: 14px 0 10px 0;
+            text-align: center;
+            border: 1.5px solid var(--border);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .stat-value {
+            font-size: 1.4em;
+            font-weight: bold;
+            color: var(--accent);
+        }
+        .stat-label {
+            font-size: 0.95em;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        @media (max-width: 900px) {
+            .flex-row { flex-direction: column; }
+            .container { padding: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-title">VISION CONTROL PANEL</div>
+        </div>
+        <div class="controls-section card">
+            <div class="control-group">
+                <label for="backend-select">Inference Backend</label>
+                <select id="backend-select"></select>
+                <button id="backend-btn" onclick="switchBackend()">Switch Backend</button>
+            </div>
+            <div class="control-group">
+                <label for="torch-model-select">Torch Model</label>
+                <select id="torch-model-select"></select>
+                <button id="torch-btn" onclick="switchModel('torch')">Switch Model</button>
+            </div>
+            <div class="control-group">
+                <label for="coreml-model-select">CoreML Model</label>
+                <select id="coreml-model-select"></select>
+                <button id="coreml-btn" onclick="switchModel('coreml')">Switch Model</button>
+            </div>
+            <div class="control-group">
+                <label for="confidence-slider">Confidence Threshold: <span id="confidence-value"></span></label>
+                <input type="range" min="0" max="1" step="0.01" id="confidence-slider" style="width:180px;">
+            </div>
+            <div class="control-group">
+                <label for="nms-slider">NMS Threshold: <span id="nms-value"></span></label>
+                <input type="range" min="0" max="1" step="0.01" id="nms-slider" style="width:180px;">
+            </div>
+            <div class="stats-grid" style="flex:1;">
+                <div class="stat-card">
+                    <div class="stat-value" id="fps-display">--</div>
+                    <div class="stat-label">Actual FPS</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="objects-count">0</div>
+                    <div class="stat-label">Objects</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="tags-count">0</div>
+                    <div class="stat-label">AprilTags</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="backend-status">--</div>
+                    <div class="stat-label">Backend</div>
+                </div>
+            </div>
+        </div>
+        <div class="flex-row">
+            <div class="video-section">
+                <img src="/video_feed" alt="Camera Stream" id="camera-stream">
+            </div>
+            <div class="info-section">
+                <div class="card">
+                    <h3>AprilTag Detections</h3>
+                    <div id="apriltag-coords" class="no-data">
+                        AprilTag coordinates will be displayed here.
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Object Detections</h3>
+                    <div id="object-info" class="no-data">
+                        Object detection results will be displayed here.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+    let currentConfig = {};
+    let isSwitchingBackend = false;
+    let isSwitchingTorch = false;
+    let isSwitchingCoreml = false;
+    let initialized = false;
+
+    function safeFormat(val, fallback = '--') {
+        const num = Number(val);
+        return isNaN(num) ? fallback : num.toFixed(2);
+    }
+
+    async function loadConfig() {
+        try {
+            const response = await fetch('/api/config');
+            const newConfig = await response.json();
+            if (!initialized) {
+                currentConfig = newConfig;
+                // Populate backend selector
+                const backendSelect = document.getElementById('backend-select');
+                backendSelect.innerHTML = '';
+                [
+                    { value: 'torch', label: 'PyTorch' },
+                    { value: 'coreml', label: 'CoreML' }
+                ].forEach(opt => {
+                    const option = document.createElement('option');
+                    option.value = opt.value;
+                    option.textContent = opt.label;
+                    if (opt.value === currentConfig.current_backend) option.selected = true;
+                    backendSelect.appendChild(option);
+                });
+                // Populate model selectors
+                const torchSelect = document.getElementById('torch-model-select');
+                const coremlSelect = document.getElementById('coreml-model-select');
+                torchSelect.innerHTML = '';
+                coremlSelect.innerHTML = '';
+                currentConfig.available_models.torch.available.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.file;
+                    option.textContent = model.name;
+                    if (model.file === currentConfig.current_torch_model) option.selected = true;
+                    torchSelect.appendChild(option);
+                });
+                currentConfig.available_models.coreml.available.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.file;
+                    option.textContent = model.name;
+                    if (model.file === currentConfig.current_coreml_model) option.selected = true;
+                    coremlSelect.appendChild(option);
+                });
+                document.getElementById('confidence-slider').value = newConfig.confidence_threshold;
+                document.getElementById('confidence-value').textContent = safeFormat(newConfig.confidence_threshold);
+                document.getElementById('nms-slider').value = newConfig.nms_threshold;
+                document.getElementById('nms-value').textContent = safeFormat(newConfig.nms_threshold);
+                // Trigger input event to sync UI
+                document.getElementById('confidence-slider').dispatchEvent(new Event('input'));
+                document.getElementById('nms-slider').dispatchEvent(new Event('input'));
+                initialized = true;
+            }
+            // Only update stats, not sliders
+            updateStatus(newConfig);
+            document.getElementById('fps-display').textContent = newConfig.actual_fps;
+        } catch (error) {
+            console.error('Failed to load config:', error);
+        }
+    }
+
+    function updateStatus(cfg) {
+        document.getElementById('backend-status').textContent = cfg.current_backend.toUpperCase();
+    }
+
+    async function switchBackend() {
+        if (isSwitchingBackend) return;
+        isSwitchingBackend = true;
+        const backendSelect = document.getElementById('backend-select');
+        const selectedBackend = backendSelect.value;
+        document.getElementById('backend-btn').disabled = true;
+        try {
+            const response = await fetch('/api/switch_backend', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backend: selectedBackend })
+            });
+            if (!response.ok) {
+                alert('Failed to switch backend');
+            }
+        } catch (error) {
+            alert('Error switching backend');
+        }
+        document.getElementById('backend-btn').disabled = false;
+        isSwitchingBackend = false;
+    }
+
+    async function switchModel(backend) {
+        if ((backend === 'torch' && isSwitchingTorch) || (backend === 'coreml' && isSwitchingCoreml)) return;
+        if (backend === 'torch') isSwitchingTorch = true;
+        if (backend === 'coreml') isSwitchingCoreml = true;
+        const selectElement = document.getElementById(`${backend}-model-select`);
+        const selectedModel = selectElement.value;
+        document.getElementById(`${backend}-btn`).disabled = true;
+        try {
+            const response = await fetch('/api/switch_model', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ backend, model: selectedModel })
+            });
+            if (!response.ok) {
+                alert('Failed to switch model');
+            }
+        } catch (error) {
+            alert('Error switching model');
+        }
+        document.getElementById(`${backend}-btn`).disabled = false;
+        if (backend === 'torch') isSwitchingTorch = false;
+        if (backend === 'coreml') isSwitchingCoreml = false;
+    }
+
+    async function fetchDetections() {
+        try {
+            const response = await fetch('/api/detections');
+            const data = await response.json();
+            document.getElementById('objects-count').textContent = data.objects ? data.objects.length : 0;
+            document.getElementById('tags-count').textContent = data.tags ? data.tags.length : 0;
+            const tagContainer = document.getElementById('apriltag-coords');
+            if (data.tags && data.tags.length > 0) {
+                tagContainer.innerHTML = data.tags.map(tag => `
+                    <div class="detection-item">
+                        <strong>ID:</strong> ${tag.id}<br>
+                        <strong>Family:</strong> ${tag.family}<br>
+                        <strong>Center:</strong> [${tag.center.map(x => x.toFixed(2)).join(', ')}]<br>
+                        <strong>Corners:</strong> [${tag.corners.map(c => '[' + c.map(x => x.toFixed(2)).join(', ') + ']').join(', ')}]
+                    </div>
+                `).join('');
+            } else {
+                tagContainer.innerHTML = '<div class="no-data">No AprilTags detected.</div>';
+            }
+            const objContainer = document.getElementById('object-info');
+            if (data.objects && data.objects.length > 0) {
+                objContainer.innerHTML = data.objects.map(obj => `
+                    <div class="detection-item">
+                        <strong>Class:</strong> ${obj.class_name}<br>
+                        <strong>Confidence:</strong> ${(obj.confidence*100).toFixed(1)}%<br>
+                        <strong>BBox:</strong> [${obj.bbox.map(x => x.toFixed(1)).join(', ')}]
+                    </div>
+                `).join('');
+            } else {
+                objContainer.innerHTML = '<div class="no-data">No objects detected.</div>';
+            }
+        } catch (error) {
+            document.getElementById('apriltag-coords').innerHTML = '<div class="no-data">Error fetching detection data.</div>';
+            document.getElementById('object-info').innerHTML = '<div class="no-data">Error fetching detection data.</div>';
+        }
+    }
+
+    // Slider event listeners
+    document.addEventListener('DOMContentLoaded', function() {
+        const confSlider = document.getElementById('confidence-slider');
+        const nmsSlider = document.getElementById('nms-slider');
+        confSlider.addEventListener('input', function() {
+            document.getElementById('confidence-value').textContent = safeFormat(confSlider.value);
+        });
+        nmsSlider.addEventListener('input', function() {
+            document.getElementById('nms-value').textContent = safeFormat(nmsSlider.value);
+        });
+        confSlider.addEventListener('change', function() {
+            updateThresholds();
+        });
+        nmsSlider.addEventListener('change', function() {
+            updateThresholds();
+        });
+    });
+
+    async function updateThresholds() {
+        const conf = parseFloat(document.getElementById('confidence-slider').value);
+        const nms = parseFloat(document.getElementById('nms-slider').value);
+        try {
+            await fetch('/api/update_thresholds', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ confidence_threshold: conf, nms_threshold: nms })
+            });
+        } catch (e) {
+            alert('Failed to update thresholds');
+        }
+    }
+
+    // Initial load
+    loadConfig();
+    setInterval(fetchDetections, 1000);
+    setInterval(() => loadConfig(), 1000); // Only updates stats, not dropdowns
+    fetchDetections();
+    </script>
+</body>
+</html>
