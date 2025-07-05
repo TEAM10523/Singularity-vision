@@ -152,7 +152,7 @@ def yolo_inferencer():
         if frame is not None:
             if current_backend == 'torch' and yolo_model is not None and hasattr(yolo_model, '__call__'):
                 try:
-                    results = yolo_model(frame, verbose=False)[0]
+                    results = yolo_model(frame, conf=CONFIDENCE_THRESHOLD, iou=NMS_THRESHOLD, verbose=False)[0]
                     with yolo_lock:
                         latest_yolo_result = results
                 except Exception as e:
