@@ -1,214 +1,109 @@
-# AI Camera Dashboard
+# Singularity Vision
 
-A smart camera dashboard supporting real-time object detection and AprilTag recognition, with both PyTorch and CoreML inference backends.
+A real-time computer vision system supporting both YOLO object detection and AprilTag pose estimation with coordinate transformation.
 
 ## Features
 
-- 🎯 **Real-time Object Detection**: Supports YOLOv8 models, capable of detecting 80 common objects
-- 🏷️ **AprilTag Recognition**: Real-time recognition and localization of AprilTag markers
-- 🔄 **Dynamic Switching**: Switch between PyTorch and CoreML inference backends at runtime
-- 📦 **Model Management**: Supports multiple model files, switchable on the fly
-- 📊 **Live Monitoring**: Displays FPS, detection counts, and other real-time stats
-- 🎨 **Modern UI**: Beautiful web interface with responsive design
-
-## Project Structure
-
-```
-├── camera_server.py          # Main server file
-├── config.json               # Configuration file
-├── requirements.txt          # Python dependencies
-├── README.md                 # Project documentation
-├── models/                   # Model directory
-│   ├── torch/                # PyTorch models
-│   │   ├── yolov8n.pt
-│   │   └── Reefscape_FRC_2-640-640-yolo11n.pt
-│   └── coreml/               # CoreML models
-│       └── yolov8n.mlpackage/
-├── templates/                # HTML templates
-│   └── dashboard.html
-└── static/                   # Static resources
-```
+- **YOLO Object Detection**: Support for both PyTorch and CoreML backends
+- **AprilTag Detection**: Real-time AprilTag detection and pose estimation
+- **Coordinate Transformation**: Convert AprilTag poses to world coordinates using WPILib geometry
+- **Multi-tag Pose Estimation**: Improved accuracy using multiple AprilTags
+- **Real-time Streaming**: Live video feed with overlay annotations
+- **REST API**: Complete API for accessing detection and pose data
 
 ## Installation
 
+1. Install dependencies:
 ```bash
-# Create a virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# or
-.venv\Scripts\activate     # Windows
-
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-## Configuration
-
-Edit the `config.json` file to configure system parameters:
-
-```json
-{
-  "inference": {
-    "backend": "coreml",        // Inference backend: "torch" or "coreml"
-    "fps": 30,                  // Target FPS
-    "confidence_threshold": 0.5, // Confidence threshold
-    "nms_threshold": 0.4        // NMS threshold
-  },
-  "models": {
-    "torch": {
-      "default": "yolov8n.pt",  // Default PyTorch model
-      "available": [...]         // Available model list
-    },
-    "coreml": {
-      "default": "yolov8n.mlpackage", // Default CoreML model
-      "available": [...]         // Available model list
-    }
-  },
-  "camera": {
-    "device_id": 0,            // Camera device ID
-    "width": 640,              // Camera width
-    "height": 480              // Camera height
-  }
-}
-```
-
-## Usage
-
-### 1. Start the Server
-
+2. Run the server:
 ```bash
 python camera_server.py
 ```
 
-The server will start at `http://localhost:5001`.
+## AprilTag Coordinate Transformation
 
-### 2. Access the Web Interface
+This system implements a complete AprilTag pose estimation pipeline similar to BlackholeVision2, including:
 
-Open your browser and go to `http://localhost:5001` to see:
+### Key Components
 
-- **Control Panel**: Switch inference backend and models
-- **Live Video Stream**: Shows detection results
-- **Detection Info**: Displays AprilTag and object detection details
-- **Stats**: Real-time FPS, detection counts, etc.
+1. **AprilTag Detector** (`apriltag_detector.py`): Detects AprilTags using OpenCV ArUco
+2. **Pose Estimators** (`pose_estimator.py`): 
+   - Single tag pose estimation
+   - Multi-tag pose estimation for improved accuracy
+3. **Coordinate Converter** (`convertor.py`): Utilities for coordinate system transformations
 
-### 3. Dynamic Switching
+### Configuration
 
-#### Switch Inference Backend
-- Select "PyTorch" or "CoreML" in the control panel
-- Click the "Switch Backend" button
-- The system will automatically reload the corresponding model
-
-#### Switch Model
-- Select a model from the dropdown menu
-- Click the "Switch Model" button
-- The system will load the new model file
-
-## Model Files
-
-### PyTorch Models
-Place `.pt` files in the `models/torch/` directory and add their configuration in `config.json`:
+Configure AprilTag settings in `config.json`:
 
 ```json
 {
-  "name": "Model Name",
-  "file": "model_filename.pt",
-  "description": "Model description"
+  "apriltag": {
+    "enabled": true,
+    "tag_size": 0.165,
+    "camera_matrix": [...],
+    "distortion_coeffs": [...],
+    "camera_pose": {
+      "x": 0.0, "y": 0.0, "z": 0.5,
+      "roll": 0.0, "pitch": 0.0, "yaw": 0.0
+    },
+    "tag_layout": [
+      {
+        "ID": 1,
+        "pose": {"x": 0.0, "y": 0.0, "z": 0.0, "roll": 0.0, "pitch": 0.0, "yaw": 0.0}
+      }
+    ]
+  }
 }
 ```
 
-### CoreML Models
-Place `.mlpackage` folders in the `models/coreml/` directory and add their configuration in `config.json`.
+### API Endpoints
 
-## API Endpoints
+- `GET /api/apriltag_poses`: Get pose estimation results
+- `GET /api/apriltag_config`: Get AprilTag configuration
+- `GET /api/detections`: Get basic detection results
 
-### Get Configuration
-```
-GET /api/config
-```
+### Coordinate Systems
 
-### Switch Inference Backend
-```
-POST /api/switch_backend
-Content-Type: application/json
+The system provides poses in multiple coordinate frames:
+- **Camera to Tag**: Tag position relative to camera
+- **Robot to Tag**: Tag position relative to robot
+- **Field to Robot**: Robot position in field coordinates (using known tag positions)
 
-{
-  "backend": "torch"  // or "coreml"
-}
-```
+### Example Usage
 
-### Switch Model
-```
-POST /api/switch_model
-Content-Type: application/json
+```python
+import requests
 
-{
-  "backend": "torch",  // or "coreml"
-  "model": "yolov8n.pt"
-}
-```
+# Get pose estimation results
+response = requests.get('http://localhost:5000/api/apriltag_poses')
+poses = response.json()
 
-### Get Detection Results
-```
-GET /api/detections
+# Access single tag poses
+for tag_pose in poses['single_tag_poses']:
+    print(f"Tag {tag_pose['tag_id']} field-to-robot pose: {tag_pose['field_to_robot_pose']}")
+
+# Access multi-tag pose (more accurate)
+if poses['multi_tag_pose']:
+    robot_pose = poses['multi_tag_pose']['field_to_robot_pose']
+    print(f"Robot position: x={robot_pose['x']:.3f}, y={robot_pose['y']:.3f}, yaw={robot_pose['yaw']:.3f}")
 ```
 
-### Video Stream
-```
-GET /video_feed
-```
+## Development
 
-## Performance Optimization
+The implementation is based on the BlackholeVision2 codebase but adapted for the Singularity-vision architecture with:
+- Simplified threading model
+- REST API integration
+- Real-time coordinate transformation
+- Multi-backend support (PyTorch/CoreML)
 
-### PyTorch Backend
-- Supports Apple Silicon MPS acceleration
-- Automatically detects and uses Metal Performance Shaders
-- CPU fallback supported
+## Dependencies
 
-### CoreML Backend
-- Optimized for Apple Silicon
-- Faster inference speed
-- Lower power consumption
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Camera cannot be opened**
-   - Check `device_id` in `config.json`
-   - Make sure the camera is not used by another program
-
-2. **Model loading failed**
-   - Check if the model file path is correct
-   - Ensure the model file is complete and not corrupted
-
-3. **Slow inference speed**
-   - Try lowering the FPS setting
-   - Use a smaller model file
-   - Check if hardware acceleration is enabled
-
-4. **Inaccurate detection results**
-   - Adjust `confidence_threshold` and `nms_threshold`
-   - Try different model files
-
-## Development Notes
-
-### Add New Models
-1. Place the model file in the appropriate directory
-2. Add the model configuration to `config.json`
-3. Restart the server or switch via API
-
-### Customize Detection Logic
-Modify the inference functions in `camera_server.py`:
-- `yolo_inferencer()`: YOLO inference thread
-- `apriltag_inferencer()`: AprilTag inference thread
-
-### Extend Frontend Features
-Edit `templates/dashboard.html` to add new UI components and features.
-
-## License
-
-This project is licensed under the MIT License.
-
-## Contributing
-
-Feel free to submit Issues and Pull Requests to improve the project! 
+- OpenCV for computer vision
+- WPILib geometry for coordinate transformations
+- SciPy for convex hull calculations
+- NumPy for numerical operations
+- Flask for web API 

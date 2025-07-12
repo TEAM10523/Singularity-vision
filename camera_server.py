@@ -9,6 +9,10 @@ from ultralytics import YOLO
 import torch
 from PIL import Image
 import coremltools as ct
+from wpimath.geometry import *
+import convertor
+from apriltag_detector import AprilTagDetector
+from pose_estimator import SingleTagPoseEstimator, MultiTagPoseEstimator
 
 app = Flask(__name__)
 
@@ -23,9 +27,11 @@ config = load_config()
 latest_frame = None
 latest_yolo_result = None
 latest_apriltag_result = None
+latest_apriltag_poses = None
 frame_lock = threading.Lock()
 yolo_lock = threading.Lock()
 apriltag_lock = threading.Lock()
+apriltag_pose_lock = threading.Lock()
 actual_fps = 0
 
 # Current settings (can be changed via API)
@@ -43,6 +49,11 @@ coreml_model = None
 coreml_class_names = None
 coreml_input_key = None
 coreml_output_key = None
+
+# AprilTag pose estimators
+apriltag_detector = None
+single_tag_estimator = None
+multi_tag_estimator = None
 
 # Device determination and model loading are only performed when using torch as the inference backend
 if current_backend == 'torch':
@@ -78,6 +89,46 @@ def load_coreml_model():
             coreml_class_names = ast.literal_eval(user_meta['names'])
         else:
             coreml_class_names = None
+
+# Initialize AprilTag components
+def initialize_apriltag():
+    global apriltag_detector, single_tag_estimator, multi_tag_estimator
+    
+    if not config.get('apriltag', {}).get('enabled', False):
+        return
+    
+    apriltag_config = config['apriltag']
+    
+    # Initialize detector
+    apriltag_detector = AprilTagDetector()
+    
+    # Initialize camera parameters
+    camera_matrix = np.array(apriltag_config['camera_matrix'])
+    distortion_coeffs = np.array(apriltag_config['distortion_coeffs'])
+    
+    # Initialize camera pose
+    camera_pose_dict = apriltag_config['camera_pose']
+    camera_pose = Transform3d(
+        Translation3d(camera_pose_dict['x'], camera_pose_dict['y'], camera_pose_dict['z']),
+        Rotation3d(camera_pose_dict['roll'], camera_pose_dict['pitch'], camera_pose_dict['yaw'])
+    )
+    
+    # Initialize pose estimators
+    tag_size = apriltag_config['tag_size']
+    tag_layout = apriltag_config['tag_layout']
+    
+    single_tag_estimator = SingleTagPoseEstimator(
+        tag_size, tag_layout, camera_matrix, distortion_coeffs, camera_pose
+    )
+    
+    multi_tag_estimator = MultiTagPoseEstimator(
+        tag_size, tag_layout, camera_matrix, distortion_coeffs, camera_pose
+    )
+    
+    print("AprilTag pose estimation initialized")
+
+# Initialize AprilTag on startup
+initialize_apriltag()
 
 # CoreML Preprocessing
 def preprocess_for_coreml(frame):
@@ -178,18 +229,58 @@ def yolo_inferencer():
             last = time.time()
         time.sleep(1.0 / FPS)
 
-# AprilTag inference thread
+# AprilTag inference thread with pose estimation
 def apriltag_inferencer():
-    global latest_apriltag_result
-    detector = cv2.aruco.ArucoDetector()
+    global latest_apriltag_result, latest_apriltag_poses
+    
     while True:
         with frame_lock:
             frame = latest_frame.copy() if latest_frame is not None else None
-        if frame is not None:
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            corners, ids, rejected = detector.detectMarkers(gray)
-            with apriltag_lock:
-                latest_apriltag_result = {'corners': corners, 'ids': ids}
+        
+        if frame is not None and apriltag_detector is not None:
+            try:
+                # Detect AprilTags
+                ids, corners = apriltag_detector.detect(frame)
+                
+                # Store basic detection results
+                with apriltag_lock:
+                    latest_apriltag_result = {'corners': corners, 'ids': ids}
+                
+                # Estimate poses if tags are detected
+                if ids is not None and len(ids) > 0:
+                    # Single tag pose estimation
+                    single_tag_results = single_tag_estimator.estimate_poses(ids, corners)
+                    
+                    # Multi-tag pose estimation
+                    multi_tag_pose, multi_tag_error = multi_tag_estimator.estimate_pose(ids, corners)
+                    
+                    # Convert multi-tag pose to list format
+                    if multi_tag_pose is not None:
+                        multi_tag_pose_list = convertor.robotPoseToList(multi_tag_pose)
+                    else:
+                        multi_tag_pose_list = [-9999, -9999, -9999, -9999, -9999, -9999]
+                    
+                    # Store pose estimation results
+                    with apriltag_pose_lock:
+                        latest_apriltag_poses = {
+                            'single_tag': single_tag_results,
+                            'multi_tag': {
+                                'pose': multi_tag_pose_list,
+                                'error': multi_tag_error if multi_tag_error is not None else -9999
+                            }
+                        }
+                else:
+                    # No tags detected, clear pose results
+                    with apriltag_pose_lock:
+                        latest_apriltag_poses = None
+                        
+            except Exception as e:
+                print(f"AprilTag inference error: {e}")
+                with apriltag_lock:
+                    latest_apriltag_result = {'corners': [], 'ids': None}
+                with apriltag_pose_lock:
+                    latest_apriltag_poses = None
+        
         time.sleep(1.0 / FPS)
 
 # Start threads
@@ -214,6 +305,10 @@ def video_feed():
             if frame is not None:
                 with yolo_lock:
                     yolo_result = latest_yolo_result
+                with apriltag_lock:
+                    apriltag_result = latest_apriltag_result
+                with apriltag_pose_lock:
+                    apriltag_poses = latest_apriltag_poses
                 
                 if yolo_result is not None:
                     if current_backend == 'torch' and hasattr(yolo_result, 'plot'):
@@ -260,6 +355,47 @@ def video_feed():
                         frame_with_boxes = frame
                 else:
                     frame_with_boxes = frame
+                
+                # Draw AprilTag annotations
+                if apriltag_result is not None and apriltag_result.get('ids') is not None:
+                    corners = apriltag_result['corners']
+                    ids = apriltag_result['ids']
+                    
+                    for i, (corner, tag_id) in enumerate(zip(corners, ids)):
+                        # Draw tag outline
+                        pts = corner[0].astype(int)
+                        cv2.polylines(frame_with_boxes, [pts], True, (0, 255, 0), 2)
+                        
+                        # Draw tag ID
+                        center = pts.mean(axis=0).astype(int)
+                        cv2.putText(frame_with_boxes, f"ID: {tag_id[0]}", 
+                                  (center[0] - 20, center[1] - 30), 
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                        
+                        # Draw coordinate information if available
+                        if apriltag_poses is not None and apriltag_poses.get('single_tag'):
+                            single_tags = apriltag_poses['single_tag']
+                            if 'tag_ids' in single_tags and 'field_to_robot_poses' in single_tags:
+                                tag_ids = single_tags['tag_ids']
+                                field_poses = single_tags['field_to_robot_poses']
+                                
+                                # Find matching tag pose
+                                for j, pose_tag_id in enumerate(tag_ids):
+                                    if pose_tag_id == tag_id[0] and field_poses[j][0] != -9999:
+                                        # Draw robot position from this tag
+                                        pose_text = f"Robot: ({field_poses[j][0]:.2f}, {field_poses[j][1]:.2f})"
+                                        cv2.putText(frame_with_boxes, pose_text, 
+                                                  (center[0] - 40, center[1] + 20), 
+                                                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                                        break
+                
+                # Draw multi-tag robot pose if available
+                if apriltag_poses is not None and apriltag_poses.get('multi_tag'):
+                    multi_tag = apriltag_poses['multi_tag']
+                    if multi_tag['pose'][0] != -9999:
+                        pose_text = f"Robot (Multi): ({multi_tag['pose'][0]:.2f}, {multi_tag['pose'][1]:.2f})"
+                        cv2.putText(frame_with_boxes, pose_text, 
+                                  (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
                 
                 ret, buffer = cv2.imencode('.jpg', frame_with_boxes)
                 frame_bytes = buffer.tobytes()
@@ -334,6 +470,97 @@ def detections_api():
     return jsonify({
         'objects': detections,
         'tags': tags
+    })
+
+@app.route('/api/apriltag_poses')
+def apriltag_poses_api():
+    """API endpoint for AprilTag pose estimation results"""
+    with apriltag_pose_lock:
+        apriltag_poses = latest_apriltag_poses
+    
+    if apriltag_poses is None:
+        return jsonify({
+            'single_tag_poses': [],
+            'multi_tag_pose': None,
+            'message': 'No AprilTag poses available'
+        })
+    
+    # Format single tag poses
+    single_tag_results = apriltag_poses.get('single_tag', {})
+    formatted_single_tags = []
+    
+    if single_tag_results:
+        tag_ids = single_tag_results.get('tag_ids', [])
+        camera_to_tag_poses = single_tag_results.get('camera_to_tag_poses', [])
+        robot_to_tag_poses = single_tag_results.get('robot_to_tag_poses', [])
+        field_to_robot_poses = single_tag_results.get('field_to_robot_poses', [])
+        errors = single_tag_results.get('errors', [])
+        
+        for i, tag_id in enumerate(tag_ids):
+            if tag_id != -9999:  # Valid tag
+                formatted_single_tags.append({
+                    'tag_id': tag_id,
+                    'camera_to_tag_pose': {
+                        'x': camera_to_tag_poses[i][0],
+                        'y': camera_to_tag_poses[i][1],
+                        'z': camera_to_tag_poses[i][2],
+                        'roll': camera_to_tag_poses[i][3],
+                        'pitch': camera_to_tag_poses[i][4],
+                        'yaw': camera_to_tag_poses[i][5]
+                    },
+                    'robot_to_tag_pose': {
+                        'x': robot_to_tag_poses[i][0],
+                        'y': robot_to_tag_poses[i][1],
+                        'z': robot_to_tag_poses[i][2],
+                        'roll': robot_to_tag_poses[i][3],
+                        'pitch': robot_to_tag_poses[i][4],
+                        'yaw': robot_to_tag_poses[i][5]
+                    },
+                    'field_to_robot_pose': {
+                        'x': field_to_robot_poses[i][0],
+                        'y': field_to_robot_poses[i][1],
+                        'z': field_to_robot_poses[i][2],
+                        'roll': field_to_robot_poses[i][3],
+                        'pitch': field_to_robot_poses[i][4],
+                        'yaw': field_to_robot_poses[i][5]
+                    } if field_to_robot_poses[i][0] != -9999 else None,
+                    'estimation_error': errors[i][0] if errors[i][0] != -9999 else None
+                })
+    
+    # Format multi-tag pose
+    multi_tag_result = apriltag_poses.get('multi_tag', {})
+    multi_tag_pose = None
+    
+    if multi_tag_result['pose'][0] != -9999:
+        multi_tag_pose = {
+            'field_to_robot_pose': {
+                'x': multi_tag_result['pose'][0],
+                'y': multi_tag_result['pose'][1],
+                'z': multi_tag_result['pose'][2],
+                'roll': multi_tag_result['pose'][3],
+                'pitch': multi_tag_result['pose'][4],
+                'yaw': multi_tag_result['pose'][5]
+            },
+            'estimation_error': multi_tag_result['error'] if multi_tag_result['error'] != -9999 else None
+        }
+    
+    return jsonify({
+        'single_tag_poses': formatted_single_tags,
+        'multi_tag_pose': multi_tag_pose,
+        'timestamp': time.time()
+    })
+
+@app.route('/api/apriltag_config')
+def apriltag_config_api():
+    """API endpoint for AprilTag configuration"""
+    apriltag_config = config.get('apriltag', {})
+    
+    return jsonify({
+        'enabled': apriltag_config.get('enabled', False),
+        'tag_size': apriltag_config.get('tag_size', 0.0),
+        'camera_pose': apriltag_config.get('camera_pose', {}),
+        'tag_layout': apriltag_config.get('tag_layout', []),
+        'pose_estimation_available': single_tag_estimator is not None and multi_tag_estimator is not None
     })
 
 @app.route('/api/update_thresholds', methods=['POST'])

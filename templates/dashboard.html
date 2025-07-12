@@ -106,6 +106,54 @@
         .detection-item strong {
             color: var(--accent);
         }
+        .pose-item {
+            background: #1e2328;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 12px;
+            border-left: 4px solid var(--success);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .pose-item.multi-tag {
+            border-left-color: #f39c12;
+            background: #252a2e;
+        }
+        .pose-item strong {
+            color: var(--success);
+        }
+        .pose-item.multi-tag strong {
+            color: #f39c12;
+        }
+        .coord-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .coord-item {
+            background: #1a1e23;
+            border-radius: 4px;
+            padding: 6px 8px;
+            font-size: 0.9em;
+            border: 1px solid #2a2f35;
+        }
+        .coord-item .label {
+            color: var(--text-secondary);
+            font-size: 0.8em;
+            margin-bottom: 2px;
+        }
+        .coord-item .value {
+            color: var(--text);
+            font-weight: 500;
+        }
+        .error-info {
+            background: #2a1f1f;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 0.85em;
+            color: #ff9999;
+            margin-top: 6px;
+        }
         .no-data {
             color: var(--text-secondary);
             font-style: italic;
@@ -242,6 +290,14 @@
                     <div class="stat-value" id="backend-status">--</div>
                     <div class="stat-label">Backend</div>
                 </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="robot-x">--</div>
+                    <div class="stat-label">Robot X</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="robot-y">--</div>
+                    <div class="stat-label">Robot Y</div>
+                </div>
             </div>
         </div>
         <div class="flex-row">
@@ -253,6 +309,18 @@
                     <h3>AprilTag Detections</h3>
                     <div id="apriltag-coords" class="no-data">
                         AprilTag coordinates will be displayed here.
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Robot Pose Estimation</h3>
+                    <div id="robot-pose" class="no-data">
+                        Robot pose estimation will be displayed here.
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Tag Pose Details</h3>
+                    <div id="tag-poses" class="no-data">
+                        Individual tag poses will be displayed here.
                     </div>
                 </div>
                 <div class="card">
@@ -381,6 +449,24 @@
         if (backend === 'coreml') isSwitchingCoreml = false;
     }
 
+    function formatCoordinate(value) {
+        return value !== null && value !== undefined && value !== -9999 ? value.toFixed(3) : 'N/A';
+    }
+
+    function formatPose(pose) {
+        if (!pose || pose.x === -9999) return null;
+        return {
+            position: `(${formatCoordinate(pose.x)}, ${formatCoordinate(pose.y)}, ${formatCoordinate(pose.z)})`,
+            rotation: `(${formatCoordinate(pose.roll)}, ${formatCoordinate(pose.pitch)}, ${formatCoordinate(pose.yaw)})`,
+            x: formatCoordinate(pose.x),
+            y: formatCoordinate(pose.y),
+            z: formatCoordinate(pose.z),
+            roll: formatCoordinate(pose.roll),
+            pitch: formatCoordinate(pose.pitch),
+            yaw: formatCoordinate(pose.yaw)
+        };
+    }
+
     async function fetchDetections() {
         try {
             const response = await fetch('/api/detections');
@@ -415,6 +501,126 @@
         } catch (error) {
             document.getElementById('apriltag-coords').innerHTML = '<div class="no-data">Error fetching detection data.</div>';
             document.getElementById('object-info').innerHTML = '<div class="no-data">Error fetching detection data.</div>';
+        }
+    }
+
+    async function fetchAprilTagPoses() {
+        try {
+            const response = await fetch('/api/apriltag_poses');
+            const data = await response.json();
+            
+            // Update robot pose (multi-tag)
+            const robotPoseContainer = document.getElementById('robot-pose');
+            if (data.multi_tag_pose) {
+                const pose = formatPose(data.multi_tag_pose.field_to_robot_pose);
+                if (pose) {
+                    // Update detailed view
+                    robotPoseContainer.innerHTML = `
+                        <div class="pose-item multi-tag">
+                            <strong>🤖 Robot Position (Multi-Tag)</strong>
+                            <div class="coord-grid">
+                                <div class="coord-item">
+                                    <div class="label">X (meters)</div>
+                                    <div class="value">${pose.x}</div>
+                                </div>
+                                <div class="coord-item">
+                                    <div class="label">Y (meters)</div>
+                                    <div class="value">${pose.y}</div>
+                                </div>
+                                <div class="coord-item">
+                                    <div class="label">Z (meters)</div>
+                                    <div class="value">${pose.z}</div>
+                                </div>
+                                <div class="coord-item">
+                                    <div class="label">Yaw (radians)</div>
+                                    <div class="value">${pose.yaw}</div>
+                                </div>
+                            </div>
+                            ${data.multi_tag_pose.estimation_error ? `<div class="error-info">Error: ${data.multi_tag_pose.estimation_error.toFixed(6)}</div>` : ''}
+                        </div>
+                    `;
+                    
+                    // Update quick stats
+                    document.getElementById('robot-x').textContent = pose.x;
+                    document.getElementById('robot-y').textContent = pose.y;
+                } else {
+                    robotPoseContainer.innerHTML = '<div class="no-data">Multi-tag pose not available.</div>';
+                    document.getElementById('robot-x').textContent = '--';
+                    document.getElementById('robot-y').textContent = '--';
+                }
+            } else {
+                robotPoseContainer.innerHTML = '<div class="no-data">Multi-tag pose not available.</div>';
+                document.getElementById('robot-x').textContent = '--';
+                document.getElementById('robot-y').textContent = '--';
+            }
+
+            // Update individual tag poses
+            const tagPosesContainer = document.getElementById('tag-poses');
+            if (data.single_tag_poses && data.single_tag_poses.length > 0) {
+                tagPosesContainer.innerHTML = data.single_tag_poses.map(tagPose => {
+                    const fieldPose = formatPose(tagPose.field_to_robot_pose);
+                    const robotPose = formatPose(tagPose.robot_to_tag_pose);
+                    
+                    return `
+                        <div class="pose-item">
+                            <strong>📍 Tag ${tagPose.tag_id}</strong>
+                            ${fieldPose ? `
+                                <div style="margin-top: 8px;">
+                                    <div style="font-size: 0.9em; color: var(--text-secondary); margin-bottom: 4px;">Robot Position (from this tag):</div>
+                                    <div class="coord-grid">
+                                        <div class="coord-item">
+                                            <div class="label">X</div>
+                                            <div class="value">${fieldPose.x}</div>
+                                        </div>
+                                        <div class="coord-item">
+                                            <div class="label">Y</div>
+                                            <div class="value">${fieldPose.y}</div>
+                                        </div>
+                                        <div class="coord-item">
+                                            <div class="label">Z</div>
+                                            <div class="value">${fieldPose.z}</div>
+                                        </div>
+                                        <div class="coord-item">
+                                            <div class="label">Yaw</div>
+                                            <div class="value">${fieldPose.yaw}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ` : '<div style="margin-top: 8px; color: var(--text-secondary); font-size: 0.9em;">Unknown tag position</div>'}
+                            ${robotPose ? `
+                                <div style="margin-top: 8px;">
+                                    <div style="font-size: 0.9em; color: var(--text-secondary); margin-bottom: 4px;">Tag Position (relative to robot):</div>
+                                    <div class="coord-grid">
+                                        <div class="coord-item">
+                                            <div class="label">X</div>
+                                            <div class="value">${robotPose.x}</div>
+                                        </div>
+                                        <div class="coord-item">
+                                            <div class="label">Y</div>
+                                            <div class="value">${robotPose.y}</div>
+                                        </div>
+                                        <div class="coord-item">
+                                            <div class="label">Distance</div>
+                                            <div class="value">${Math.sqrt(Math.pow(parseFloat(robotPose.x) || 0, 2) + Math.pow(parseFloat(robotPose.y) || 0, 2)).toFixed(3)}</div>
+                                        </div>
+                                        <div class="coord-item">
+                                            <div class="label">Angle</div>
+                                            <div class="value">${(Math.atan2(parseFloat(robotPose.y) || 0, parseFloat(robotPose.x) || 0) * 180 / Math.PI).toFixed(1)}°</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ` : ''}
+                            ${tagPose.estimation_error ? `<div class="error-info">Error: ${tagPose.estimation_error.toFixed(6)}</div>` : ''}
+                        </div>
+                    `;
+                }).join('');
+            } else {
+                tagPosesContainer.innerHTML = '<div class="no-data">No tag poses available.</div>';
+            }
+        } catch (error) {
+            console.error('Failed to fetch AprilTag poses:', error);
+            document.getElementById('robot-pose').innerHTML = '<div class="no-data">Error fetching pose data.</div>';
+            document.getElementById('tag-poses').innerHTML = '<div class="no-data">Error fetching pose data.</div>';
         }
     }
 
@@ -453,8 +659,10 @@
     // Initial load
     loadConfig();
     setInterval(fetchDetections, 1000);
+    setInterval(fetchAprilTagPoses, 1000); // Fetch AprilTag poses every second
     setInterval(() => loadConfig(), 1000); // Only updates stats, not dropdowns
     fetchDetections();
+    fetchAprilTagPoses(); // Initial fetch
     </script>
 </body>
 </html>

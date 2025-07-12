@@ -7,4 +7,8 @@ pupil-apriltags
 ultralytics
 torch==2.5.0
 torchvision==0.20
-coremltools 
+coremltools
+robotpy-wpimath
+scipy
+numpy
+matplotlib 
