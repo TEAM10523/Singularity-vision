@@ -17,6 +17,39 @@ def _load_config(path: Path = _CONFIG_PATH) -> Dict[str, Any]:
 # if needed)
 config: Dict[str, Any] = _load_config()
 
+# ---------------------------------------------------------------------------
+# Dynamic override: load season-specific AprilTag layout if a file matching
+# "*reefscape*.json" exists in the project root (e.g. "2025-reefscape-welded.json").
+# ---------------------------------------------------------------------------
+
+
+def _apply_dynamic_apriltag_layout(cfg: Dict[str, Any]):
+    from glob import glob
+
+    candidates = glob(str(_PROJECT_ROOT / "*reefscape*.json"))
+    if not candidates:
+        return cfg  # nothing to do
+
+    tag_file = Path(candidates[0])
+    try:
+        with tag_file.open("r", encoding="utf-8") as f:
+            tag_data = json.load(f)
+        layout = [
+            {"ID": t["ID"], "pose": t["pose"]}
+            for t in tag_data.get("tags", [])
+        ]
+
+        cfg.setdefault("apriltag", {})["tag_layout"] = layout
+        cfg["apriltag"]["source_file"] = tag_file.name
+    except Exception as exc:
+        # Fail silently but log for debugging
+        print(f"Warning: failed to load dynamic AprilTag layout from {tag_file}: {exc}")
+
+    return cfg
+
+
+config = _apply_dynamic_apriltag_layout(config)
+
 
 # ---------------------------------------------------------------------------
 # Convenience helpers
