@@ -12,3 +12,5 @@ robotpy-wpimath
 scipy
 numpy
 matplotlib
+ntcore
+pynetworktables

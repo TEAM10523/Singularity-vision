@@ -18,32 +18,49 @@ def _load_config(path: Path = _CONFIG_PATH) -> Dict[str, Any]:
 config: Dict[str, Any] = _load_config()
 
 # ---------------------------------------------------------------------------
-# Dynamic override: load season-specific AprilTag layout if a file matching
-# "*reefscape*.json" exists in the project root (e.g. "2025-reefscape-welded.json").
+# Dynamic override: load AprilTag layout from a user-specified JSON file.
+# If config["apriltag"]["layout_file"] is set, it takes precedence.
+# Otherwise fall back to auto-detecting a *reefscape*.json file (legacy behaviour).
 # ---------------------------------------------------------------------------
 
 
 def _apply_dynamic_apriltag_layout(cfg: Dict[str, Any]):
-    from glob import glob
+    """Populate cfg['apriltag']['tag_layout'] from an external JSON layout file.
 
-    candidates = glob(str(_PROJECT_ROOT / "*reefscape*.json"))
-    if not candidates:
-        return cfg  # nothing to do
+    Precedence:
+    1. If cfg['apriltag']['layout_file'] is provided, load from that path (relative
+       to project root if not absolute).
+    2. Otherwise, fall back to the legacy behaviour that auto-detects the first
+       "*reefscape*.json" file in the project root.
+    """
 
-    tag_file = Path(candidates[0])
-    try:
-        with tag_file.open("r", encoding="utf-8") as f:
-            tag_data = json.load(f)
-        layout = [
-            {"ID": t["ID"], "pose": t["pose"]}
-            for t in tag_data.get("tags", [])
-        ]
+    apriltag_cfg = cfg.setdefault("apriltag", {})
 
-        cfg.setdefault("apriltag", {})["tag_layout"] = layout
-        cfg["apriltag"]["source_file"] = tag_file.name
-    except Exception as exc:
-        # Fail silently but log for debugging
-        print(f"Warning: failed to load dynamic AprilTag layout from {tag_file}: {exc}")
+    layout_path = apriltag_cfg.get("layout_file")
+
+    tag_file: Path | None = None
+
+    if layout_path:
+        tag_file = Path(layout_path)
+        if not tag_file.is_absolute():
+            tag_file = _PROJECT_ROOT / tag_file
+    else:
+        # Legacy fallback – look for any reefscape JSON in the root
+        from glob import glob
+        candidates = glob(str(_PROJECT_ROOT / "*reefscape*.json"))
+        if candidates:
+            tag_file = Path(candidates[0])
+
+    if tag_file and tag_file.exists():
+        try:
+            with tag_file.open("r", encoding="utf-8") as f:
+                tag_data = json.load(f)
+            layout = [{"ID": t["ID"], "pose": t["pose"]} for t in tag_data.get("tags", [])]
+
+            apriltag_cfg["tag_layout"] = layout
+            apriltag_cfg["source_file"] = str(tag_file)
+        except Exception as exc:
+            print(f"Warning: failed to load AprilTag layout from {tag_file}: {exc}")
 
     return cfg
 

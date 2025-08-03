@@ -10,6 +10,7 @@ from .routes import api_bp
 from .camera import start_camera_thread, cleanup_camera
 from .yolo import start_yolo_thread
 from .apriltag_module import start_apriltag_thread
+from .ntcore_publisher import start_ntcore_thread
 
 # ---------------------------------------------------------------------------
 # Flask application factory
@@ -33,13 +34,15 @@ def create_app() -> Flask:
 _camera_thread = None
 _yolo_thread = None
 _apriltag_thread = None
+_ntcore_thread = None
 
 
 def _start_background_threads():
-    global _camera_thread, _yolo_thread, _apriltag_thread
+    global _camera_thread, _yolo_thread, _apriltag_thread, _ntcore_thread
     _camera_thread = start_camera_thread()
     _yolo_thread = start_yolo_thread()
     _apriltag_thread = start_apriltag_thread()
+    _ntcore_thread = start_ntcore_thread()
 
 
 # ---------------------------------------------------------------------------
