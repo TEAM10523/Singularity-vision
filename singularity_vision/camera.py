@@ -111,6 +111,65 @@ def _device_index_by_name(name_substr: str) -> Optional[int]:
 
 
 # ---------------------------------------------------------------------------
+# New helpers: resolve camera index via uniqueID / name / fallback to integer
+# ---------------------------------------------------------------------------
+
+
+def _device_index_by_uid(uid: str) -> Optional[int]:
+    """Return OpenCV index for the camera whose AVFoundation *uniqueID* equals *uid*.
+
+    This follows the same ordering logic as `cv2.CAP_AVFOUNDATION`—devices are
+    sorted by their uniqueID strings so that the resulting index lines up with
+    what OpenCV expects.
+    """
+    if not (_HAS_AVF and platform.system() == "Darwin"):
+        return None
+    try:
+        devices = sorted(
+            AVFoundation.AVCaptureDevice.devicesWithMediaType_(AVFoundation.AVMediaTypeVideo),
+            key=lambda d: str(d.uniqueID()),
+        )
+        for idx, dev in enumerate(devices):
+            if str(dev.uniqueID()) == str(uid):
+                return idx
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_device_index(cam_cfg: dict) -> int:
+    """Determine which camera index to open based on *cam_cfg*.
+
+    Priority order:
+    1. *unique_id*  – most stable on macOS (requires AVFoundation / PyObjC)
+    2. *name*       – substring or exact match of camera name
+    3. *device_id*  – plain integer fallback.
+    """
+    # 1. UniqueID (AVFoundation)
+    uid = cam_cfg.get("unique_id")
+    if uid:
+        idx = _device_index_by_uid(uid)
+        if idx is not None:
+            print(f"Resolved camera unique_id={uid} -> index {idx}")
+            return idx
+        else:
+            print(f"Warning: unique_id '{uid}' not found. Falling back …")
+
+    # 2. Name substring
+    name_sub = cam_cfg.get("name") or cam_cfg.get("device_name")
+    if name_sub:
+        idx = _device_index_by_name(name_sub)
+        if idx is not None:
+            print(f"Resolved camera name '{name_sub}' -> index {idx}")
+            return idx
+        else:
+            print(f"Warning: camera name '{name_sub}' not found. Falling back …")
+
+    # 3. Integer device_id (default 0)
+    return int(cam_cfg.get("device_id", 0))
+
+
+# ---------------------------------------------------------------------------
 # Camera reader thread
 # ---------------------------------------------------------------------------
 
@@ -122,20 +181,27 @@ def _camera_reader() -> None:
 
     cam_cfg = config["camera"]
 
-    dev_id = cam_cfg.get("device_id", 0)
+    # Resolve device index using the new helper (unique_id / name / fallback)
+    dev_id = _resolve_device_index(cam_cfg)
 
     # Simple validation: attempt to open once to ensure device exists
-    test_cap = cv2.VideoCapture(dev_id)
+    test_cap = cv2.VideoCapture(dev_id, cv2.CAP_AVFOUNDATION if platform.system() == "Darwin" else 0)
     if not test_cap.isOpened():
-        raise RuntimeError(f"Unable to open camera with device_id={dev_id}. Check config.json and available cameras.")
+        raise RuntimeError(
+            f"Unable to open camera (resolved id={dev_id}). Check config.json and available cameras."
+        )
     test_cap.release()
 
-    print(f"Selected camera device {dev_id} as configured in config.json")
+    print(f"Selected camera device {dev_id} (resolved from config)")
 
     global selected_device_id
     selected_device_id = dev_id
 
-    cap = cv2.VideoCapture(dev_id)
+    # Always prefer AVFoundation backend on macOS for stable ordering
+    if platform.system() == "Darwin":
+        cap = cv2.VideoCapture(dev_id, cv2.CAP_AVFOUNDATION)
+    else:
+        cap = cv2.VideoCapture(dev_id)
     camera_cap = cap  # keep global ref so we can release later
 
     # Apply resolution settings
