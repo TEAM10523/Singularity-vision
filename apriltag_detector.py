@@ -1,40 +1,74 @@
 import cv2
 import numpy as np
+from pupil_apriltags import Detector
+
 
 class AprilTagDetector:
-    """AprilTag detector using OpenCV ArUco implementation"""
-    
-    def __init__(self, dictionary_id=cv2.aruco.DICT_APRILTAG_36H11):
-        """Initialize AprilTag detector
-        
-        Args:
-            dictionary_id: ArUco dictionary ID (default: DICT_APRILTAG_36H11)
-        """
-        self._aruco_dict = cv2.aruco.getPredefinedDictionary(dictionary_id)
-        self._aruco_params = cv2.aruco.DetectorParameters()
-        self.detector = cv2.aruco.ArucoDetector(self._aruco_dict, self._aruco_params)
-    
+    """AprilTag detector using *pupil_apriltags* for higher accuracy and speed.
+
+    The public interface remains compatible with the previous OpenCV-based
+    implementation: :py:meth:`detect` returns *(ids, corners)* where *ids* is an
+    ``np.ndarray`` of shape *(N, 1)`` (or ``None`` when no tags were found) and
+    *corners* is an ``np.ndarray`` of shape *(N, 1, 4, 2)`` matching OpenCV’s
+    ArUco output so the rest of the codebase does not need to change.
+    """
+
+    def __init__(
+        self,
+        families: str = "tag36h11",
+        nthreads: int = 2,
+        quad_decimate: float = 1.0,
+        quad_sigma: float = 0.0,
+        refine_edges: bool = True,
+        decode_sharpening: float = 0.25,
+        debug: int = 0,
+    ) -> None:
+        self.detector = Detector(
+            families=families,
+            nthreads=nthreads,
+            quad_decimate=quad_decimate,
+            quad_sigma=quad_sigma,
+            refine_edges=refine_edges,
+            decode_sharpening=decode_sharpening,
+            debug=debug,
+        )
+
+    # ---------------------------------------------------------------------
+    # Public API
+    # ---------------------------------------------------------------------
+
     def detect(self, frame):
-        """Detect AprilTags in the frame
-        
-        Args:
-            frame: Input image (numpy array)
-            
-        Returns:
-            tuple: (ids, corners) where ids is array of detected tag IDs 
-                   and corners is array of corner coordinates
+        """Detect AprilTags in *frame*.
+
+        Parameters
+        ----------
+        frame : np.ndarray
+            The input BGR or grayscale image.
+
+        Returns
+        -------
+        tuple (ids, corners)
+            - *ids*: ``np.ndarray`` of detected tag IDs with shape *(N, 1)* or
+              ``None`` if no tags are detected.
+            - *corners*: ``np.ndarray`` of corner coordinates with shape
+              *(N, 1, 4, 2)* following the same convention as OpenCV’s
+              `aruco.detectMarkers`.
         """
-        # Convert to grayscale if needed
-        if len(frame.shape) == 3:
-            gray_image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        # Convert to grayscale as required by pupil_apriltags
+        if frame.ndim == 3:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         else:
-            gray_image = frame
-            
-        # Detect markers
-        corners, ids, _ = self.detector.detectMarkers(gray_image)
-        
+            gray = frame
+
+        detections = self.detector.detect(gray)
+
+        if not detections:
+            return None, []
+
+        ids = np.array([[d.tag_id] for d in detections], dtype=np.int32)
+        # Convert corners list to expected array shape (N,1,4,2)
+        corners = np.array([[d.corners] for d in detections], dtype=np.float32)
         return ids, corners
-    
-    def __call__(self, frame):
-        """Make the detector callable"""
-        return self.detect(frame) 
+
+    # Allow instances to be called directly
+    __call__ = detect 

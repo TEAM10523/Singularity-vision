@@ -11,4 +11,4 @@ coremltools
 robotpy-wpimath
 scipy
 numpy
-matplotlib 
+matplotlib
