@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Optional
+from typing import Optional, Sequence
 
 import cv2
+import platform
+import subprocess
+import json as _json
 
 from .config import config, get_cam_fps
 
@@ -24,6 +27,70 @@ camera_thread_running = True
 
 # Keep a reference to the cv2.VideoCapture object so we can release it later.
 camera_cap: Optional[cv2.VideoCapture] = None
+selected_device_id: Optional[int] = None
+
+
+# ---------------------------------------------------------------------------
+# Helper – find an operational camera from a set of indices (fallback scan)
+# ---------------------------------------------------------------------------
+
+
+def _find_working_camera(
+    fallback_range: Sequence[int],
+    width: int,
+    height: int,
+) -> Optional[int]:
+    """Return first device in *fallback_range* that delivers a valid frame."""
+
+    for device_id in fallback_range:
+        cap = cv2.VideoCapture(device_id)
+        if not cap.isOpened():
+            cap.release()
+            continue
+
+        # Try to set resolution to help filter out virtual devices
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+        ret, _ = cap.read()
+        if ret:
+            cap.release()
+            return device_id
+
+        cap.release()
+
+    return None
+
+
+# ---------------------------------------------------------------------------
+# macOS-specific helper: map camera name substring to AVFoundation index
+# ---------------------------------------------------------------------------
+
+
+def _device_index_by_name(name_substr: str) -> Optional[int]:
+    """Return AVFoundation device index whose descriptive name contains
+    *name_substr* (case-insensitive). Only implemented on macOS; returns None
+    otherwise or if not found."""
+
+    if platform.system() != "Darwin":
+        return None
+
+    try:
+        out = subprocess.check_output([
+            "system_profiler",
+            "-json",
+            "SPCameraDataType",
+        ], text=True)
+        data = _json.loads(out)
+        cameras = data.get("SPCameraDataType", [{}])[0].get("_items", [])
+        # AVFoundation orders devices as they appear in this list
+        for idx, cam in enumerate(cameras):
+            if name_substr.lower() in cam.get("_name", "").lower():
+                return idx
+    except Exception as exc:
+        print(f"Warning: unable to map camera identifier via system_profiler: {exc}")
+
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -37,7 +104,26 @@ def _camera_reader() -> None:
     global latest_frame, camera_cap, camera_thread_running
 
     cam_cfg = config["camera"]
-    cap = cv2.VideoCapture(cam_cfg["device_id"])
+
+    identifier = cam_cfg.get("identifier")
+
+    if not identifier:
+        raise RuntimeError("camera.identifier missing in config.json")
+
+    dev_id = _device_index_by_name(identifier)
+
+    if dev_id is None:
+        # Fallback scan (0-5) if name mapping failed
+        fallback_ids = cam_cfg.get("fallback_ids", list(range(5)))
+        dev_id = _find_working_camera(fallback_ids, cam_cfg["width"], cam_cfg["height"])
+
+    if dev_id is None:
+        raise RuntimeError("No working camera found")
+
+    global selected_device_id
+    selected_device_id = dev_id
+
+    cap = cv2.VideoCapture(dev_id)
     camera_cap = cap  # keep global ref so we can release later
 
     # Apply resolution settings

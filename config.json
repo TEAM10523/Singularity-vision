@@ -33,7 +33,7 @@
     }
   },
   "camera": {
-    "device_id": 0,
+    "identifier": "USB Camera",
     "width": 640,
     "height": 480
   },
