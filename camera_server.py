@@ -4,6 +4,8 @@ import threading
 import time
 import json
 import os
+import signal
+import sys
 from flask import Flask, Response, jsonify, request, render_template
 from ultralytics import YOLO
 import torch
@@ -15,6 +17,29 @@ from apriltag_detector import AprilTagDetector
 from pose_estimator import SingleTagPoseEstimator, MultiTagPoseEstimator
 
 app = Flask(__name__)
+
+# Global camera object for cleanup
+camera_cap = None
+camera_thread_running = True
+
+# Signal handler for graceful shutdown
+def signal_handler(signum, frame):
+    global camera_thread_running, camera_cap
+    print(f"\nReceived signal {signum}. Shutting down gracefully...")
+    camera_thread_running = False
+    
+    # Release camera
+    if camera_cap is not None:
+        print("Releasing camera...")
+        camera_cap.release()
+        camera_cap = None
+    
+    # Exit the program
+    sys.exit(0)
+
+# Register signal handlers
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
 
 # Load configuration
 def load_config():
@@ -177,13 +202,14 @@ def postprocess_coreml_output(result):
 
 # Camera reader thread
 def camera_reader():
-    global latest_frame
+    global latest_frame, camera_cap
     cap = cv2.VideoCapture(config['camera']['device_id'])
+    camera_cap = cap # Assign to global variable
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, config['camera']['width'])
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, config['camera']['height'])
     
     interval = 1.0 / FPS
-    while True:
+    while camera_thread_running:
         ret, frame = cap.read()
         if ret:
             with frame_lock:
@@ -197,7 +223,7 @@ def yolo_inferencer():
     global latest_yolo_result, actual_fps
     last = time.time()
     count = 0
-    while True:
+    while camera_thread_running:
         with frame_lock:
             frame = latest_frame.copy() if latest_frame is not None else None
         if frame is not None:
@@ -233,7 +259,7 @@ def yolo_inferencer():
 def apriltag_inferencer():
     global latest_apriltag_result, latest_apriltag_poses
     
-    while True:
+    while camera_thread_running:
         with frame_lock:
             frame = latest_frame.copy() if latest_frame is not None else None
         
@@ -648,5 +674,28 @@ def switch_model():
     
     return jsonify({'success': True})
 
+def cleanup():
+    """Cleanup function to release resources"""
+    global camera_cap, camera_thread_running
+    print("Cleaning up resources...")
+    camera_thread_running = False
+    
+    # Release camera
+    if camera_cap is not None:
+        print("Releasing camera...")
+        camera_cap.release()
+        camera_cap = None
+    
+    # Close any open windows
+    cv2.destroyAllWindows()
+    print("Cleanup completed.")
+
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5001, debug=False) 
+    try:
+        app.run(host='0.0.0.0', port=5001, debug=False)
+    except KeyboardInterrupt:
+        print("\nKeyboard interrupt received.")
+    except Exception as e:
+        print(f"Error occurred: {e}")
+    finally:
+        cleanup() 
