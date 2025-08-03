@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Optional, Sequence
+from typing import Optional
 
 import cv2
+
+# add back platform and subprocess
 import platform
 import subprocess
 import json as _json
+
+# Attempt to import AVFoundation via PyObjC for reliable device name mapping
+try:
+    import AVFoundation  # type: ignore
+    _HAS_AVF = True
+except ImportError:
+    _HAS_AVF = False
 
 from .config import config, get_cam_fps
 
@@ -31,70 +40,78 @@ selected_device_id: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
-# Helper – find an operational camera from a set of indices (fallback scan)
-# ---------------------------------------------------------------------------
-
-
-def _find_working_camera(
-    fallback_range: Sequence[int],
-    width: int,
-    height: int,
-) -> Optional[int]:
-    """Return first device in *fallback_range* that delivers a valid frame."""
-
-    for device_id in fallback_range:
-        cap = cv2.VideoCapture(device_id)
-        if not cap.isOpened():
-            cap.release()
-            continue
-
-        # Try to set resolution to help filter out virtual devices
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-
-        ret, _ = cap.read()
-        if ret:
-            cap.release()
-            return device_id
-
-        cap.release()
-
-    return None
-
-
-# ---------------------------------------------------------------------------
-# macOS-specific helper: map camera name substring to AVFoundation index
+# Helper: map macOS camera names to indices via system_profiler or imagesnap.
 # ---------------------------------------------------------------------------
 
 
 def _device_index_by_name(name_substr: str) -> Optional[int]:
-    """Return AVFoundation device index whose descriptive name contains
-    *name_substr* (case-insensitive). Only implemented on macOS; returns None
-    otherwise or if not found."""
+    """Return index of camera whose name contains *name_substr* (case-insensitive).
+    Supported on macOS using system_profiler/imagesnap. None if not found."""
 
+    # macOS specific
     if platform.system() != "Darwin":
         return None
 
+    # 1. Use ffmpeg avfoundation list (indices match OpenCV directly)
     try:
-        out = subprocess.check_output([
-            "system_profiler",
-            "-json",
-            "SPCameraDataType",
-        ], text=True)
-        data = _json.loads(out)
-        cameras = data.get("SPCameraDataType", [{}])[0].get("_items", [])
-        # AVFoundation orders devices as they appear in this list
-        for idx, cam in enumerate(cameras):
-            if name_substr.lower() in cam.get("_name", "").lower():
-                return idx
-    except Exception as exc:
-        print(f"Warning: unable to map camera identifier via system_profiler: {exc}")
+        proc = subprocess.run([
+            "ffmpeg", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
+            stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True, check=False
+        )
+        for line in proc.stderr.splitlines():
+            if "AVFoundation video devices" in line:
+                continue
+            if "input device" in line and "] [" in line:
+                # format: ... [N] Name
+                parts = line.split("[", 2)
+                if len(parts) >= 3:
+                    idx_str = parts[2].split("]",1)[0]
+                    name = parts[2].split("]",1)[1].strip()
+                    try:
+                        idx_num = int(idx_str)
+                    except ValueError:
+                        continue
+                    if name_substr.lower() in name.lower():
+                        return idx_num
+    except FileNotFoundError:
+        pass
+
+    # 2. Fallback to PyObjC DiscoverySession
+    if not _HAS_AVF:
+        return None
+
+    try:
+        # Use the non-deprecated DiscoverySession API so the order matches AVFoundation / OpenCV.
+        session = AVFoundation.AVCaptureDeviceDiscoverySession.discoverySessionWithDeviceTypes_mediaType_position_(
+            [
+                AVFoundation.AVCaptureDeviceTypeBuiltInWideAngleCamera,
+                AVFoundation.AVCaptureDeviceTypeExternalUnknown,
+            ],
+            AVFoundation.AVMediaTypeVideo,
+            AVFoundation.AVCaptureDevicePositionUnspecified,
+        )
+        devices = list(session.devices())
+        total = len(devices)
+
+        # First pass: exact (case-insensitive) match
+        for idx, dev in enumerate(devices):
+            name = str(dev.localizedName())
+            if name.lower() == name_substr.lower():
+                return total - 1 - idx  # reverse to match OpenCV order
+
+        # Second pass: substring match
+        name_sub_lc = name_substr.lower()
+        for idx, dev in enumerate(devices):
+            if name_sub_lc in str(dev.localizedName()).lower():
+                return total - 1 - idx
+    except Exception:
+        pass
 
     return None
 
 
 # ---------------------------------------------------------------------------
-# Background thread implementation
+# Camera reader thread
 # ---------------------------------------------------------------------------
 
 def _camera_reader() -> None:
@@ -105,20 +122,15 @@ def _camera_reader() -> None:
 
     cam_cfg = config["camera"]
 
-    identifier = cam_cfg.get("identifier")
+    dev_id = cam_cfg.get("device_id", 0)
 
-    if not identifier:
-        raise RuntimeError("camera.identifier missing in config.json")
+    # Simple validation: attempt to open once to ensure device exists
+    test_cap = cv2.VideoCapture(dev_id)
+    if not test_cap.isOpened():
+        raise RuntimeError(f"Unable to open camera with device_id={dev_id}. Check config.json and available cameras.")
+    test_cap.release()
 
-    dev_id = _device_index_by_name(identifier)
-
-    if dev_id is None:
-        # Fallback scan (0-5) if name mapping failed
-        fallback_ids = cam_cfg.get("fallback_ids", list(range(5)))
-        dev_id = _find_working_camera(fallback_ids, cam_cfg["width"], cam_cfg["height"])
-
-    if dev_id is None:
-        raise RuntimeError("No working camera found")
+    print(f"Selected camera device {dev_id} as configured in config.json")
 
     global selected_device_id
     selected_device_id = dev_id
