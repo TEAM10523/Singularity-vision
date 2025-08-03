@@ -53,6 +53,9 @@ def _cleanup(*_args):
     # No explicit clean-up necessary for YOLO/CoreML threads; they are daemons.
 
     sys.stdout.flush()
+    # Force process termination to avoid werkzeug hanging
+    import os
+    os._exit(0)
 
 
 # Register handlers

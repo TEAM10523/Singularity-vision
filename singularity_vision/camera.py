@@ -71,7 +71,7 @@ def start_camera_thread() -> threading.Thread:
     return t
 
 
-def get_latest_frame(copy: bool = True):
+def get_latest_frame(copy: bool = False):
     """Return the most recent camera frame. If *copy* is True (default) we
     return a shallow copy so the caller can safely manipulate it without
     interfering with other threads."""

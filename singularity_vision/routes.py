@@ -82,7 +82,7 @@ def video_feed():
                     frame_with_boxes, apriltag_result, apriltag_poses
                 )
 
-            ret, buffer = cv2.imencode(".jpg", frame_with_boxes)
+            ret, buffer = cv2.imencode(".jpg", frame_with_boxes, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
             frame_bytes = buffer.tobytes()
 
             yield (

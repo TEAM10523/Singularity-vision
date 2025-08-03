@@ -16,8 +16,8 @@ class AprilTagDetector:
     def __init__(
         self,
         families: str = "tag36h11",
-        nthreads: int = 2,
-        quad_decimate: float = 1.0,
+        nthreads: int = 4,
+        quad_decimate: float = 2.0,
         quad_sigma: float = 0.0,
         refine_edges: bool = True,
         decode_sharpening: float = 0.25,

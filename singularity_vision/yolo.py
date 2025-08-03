@@ -50,6 +50,9 @@ def _init_torch_model() -> None:
 
     yolo_model = YOLO(f"models/torch/{current_torch_model}")
     yolo_model.to(yolo_device)
+    # Use half precision for faster inference on Apple Silicon GPU
+    if yolo_device.type != "cpu":
+        yolo_model.half()
 
 
 def _load_coreml_model():
