@@ -92,9 +92,11 @@ def _init_ntcore():
             fallback = os.getenv("FRC_ROBORIO_IP", "10.0.0.2")
             inst.startClient(fallback)
 
-    table = inst.getTable("vision")
-    print("NTCore client started, publishing to table '/vision'")
-    return inst, table
+    # Publish under '/singularity-vision/<device_id>' so multiple processes/cameras can coexist
+    device_id = config.get("camera", {}).get("unique_id", "device")
+    root = inst.getTable("singularity-vision").getSubTable(device_id)
+    print(f"NTCore client started, publishing to table '/singularity-vision/{device_id}'")
+    return inst, root
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +159,9 @@ def _ntcore_publisher():
 
     # Sub-entries to reuse each iteration (avoids reallocation cost)
     detections_entry = table.getEntry("detections")
-    apriltag_entry = table.getEntry("apriltag_poses")
+    apriltag_json_entry = table.getEntry("apriltag_poses")
+    multi_pose_entry = table.getEntry("multi_pose")  # double[6] {x,y,z,roll,pitch,yaw}
+    multi_error_entry = table.getEntry("multi_error")  # double
 
     publish_hz: float = config.get("ntcore", {}).get("publish_hz", 20.0)
     interval = 1.0 / publish_hz if publish_hz > 0 else 0.05
@@ -169,7 +173,69 @@ def _ntcore_publisher():
 
         # Serialise to JSON strings – easier to consume on robot side
         detections_entry.setString(json.dumps(detections))
-        apriltag_entry.setString(json.dumps(apriltag_poses if apriltag_poses else {}))
+        apriltag_json_entry.setString(json.dumps(apriltag_poses if apriltag_poses else {}))
+
+        # Structured numeric entries for robot consumption
+        if apriltag_poses and "multi_tag" in apriltag_poses:
+            multi = apriltag_poses["multi_tag"]
+            pose = multi.get("pose", [])
+            if pose and pose[0] != -9999:
+                # Ensure 6-length list
+                pose6 = [float(pose[i]) for i in range(6)]
+                # Try native ntcore API first, fallback to pynetworktables methods
+                try:
+                    multi_pose_entry.setDoubleArray(pose6)
+                except Exception:
+                    try:
+                        table.putNumberArray("multi_pose", pose6)
+                    except Exception:
+                        pass
+                # Robustly coerce error to scalar
+                err_val = multi.get("error", -1)
+                try:
+                    if isinstance(err_val, (list, tuple)) and len(err_val) > 0:
+                        err_val = float(err_val[0])
+                    else:
+                        err_val = float(err_val)
+                except Exception:
+                    err_val = -1.0
+                try:
+                    multi_error_entry.setDouble(err_val)
+                except Exception:
+                    try:
+                        table.putNumber("multi_error", err_val)
+                    except Exception:
+                        pass
+            else:
+                try:
+                    multi_pose_entry.setDoubleArray([])
+                except Exception:
+                    try:
+                        table.putNumberArray("multi_pose", [])
+                    except Exception:
+                        pass
+                try:
+                    multi_error_entry.setDouble(-1)
+                except Exception:
+                    try:
+                        table.putNumber("multi_error", -1)
+                    except Exception:
+                        pass
+        else:
+            try:
+                multi_pose_entry.setDoubleArray([])
+            except Exception:
+                try:
+                    table.putNumberArray("multi_pose", [])
+                except Exception:
+                    pass
+            try:
+                multi_error_entry.setDouble(-1)
+            except Exception:
+                try:
+                    table.putNumber("multi_error", -1)
+                except Exception:
+                    pass
 
         inst.flush()
         time.sleep(interval)
